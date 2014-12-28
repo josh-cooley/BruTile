@@ -5,11 +5,12 @@ using System;
 
 namespace BruTile.Web
 {
-    public class WebTileProvider : ITileProvider
+    public class WebTileProvider : ITileProviderAsync
     {
         private readonly IPersistentCache<byte[]> _persistentCache;
         private readonly IRequest _request;
         private readonly Func<Uri, byte[]> _fetchTile;
+        private readonly Func<Uri, System.Threading.Tasks.Task<byte[]>> _fetchTileAsync;
 
         public WebTileProvider(IRequest request = null, IPersistentCache<byte[]> persistentCache = null,
             Func<Uri, byte[]> fetchTile = null)
@@ -17,6 +18,7 @@ namespace BruTile.Web
             _request = request ?? new NullRequest();
             _persistentCache = persistentCache ?? new NullCache();
             _fetchTile = fetchTile ?? (RequestHelper.FetchImage);
+            _fetchTileAsync = RequestHelper.FetchImageAsync;
         }
 
         public byte[] GetTile(TileInfo tileInfo)
@@ -28,6 +30,25 @@ namespace BruTile.Web
                 if (bytes != null) _persistentCache.Add(tileInfo.Index, bytes);
             }
             return bytes;
+        }
+
+        public System.Threading.Tasks.Task<byte[]> GetTileAsync(TileInfo tileInfo)
+        {
+            var bytes = _persistentCache.Find(tileInfo.Index);
+            if (bytes == null)
+            {
+                var bytesTask = _fetchTileAsync(_request.GetUri(tileInfo));
+                return bytesTask.ContinueWith(fetchResult =>
+                {
+                    var fetchedBytes = fetchResult.Result;
+                    if (fetchedBytes != null) _persistentCache.Add(tileInfo.Index, fetchedBytes);
+                    return fetchedBytes;
+                });
+            }
+            else
+            {
+                return Utilities.TaskFromValue(bytes);
+            }
         }
     }
 }

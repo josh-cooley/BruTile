@@ -3,6 +3,7 @@
 using System;
 using System.Net;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace BruTile.Extensions
 {
@@ -88,6 +89,37 @@ namespace BruTile.Extensions
             if (exception != null) throw exception;
 
             return response;
+        }
+
+        public static Task<HttpWebResponse> GetResponseAsync(
+            this HttpWebRequest request, int? timeout)
+        {
+            if (request == null)
+            {
+                throw new ArgumentNullException("request");
+            }
+
+            var responseTask = Task.Factory.FromAsync(
+                new Func<AsyncCallback, object, IAsyncResult>(request.BeginGetResponse),
+                new Func<IAsyncResult, HttpWebResponse>(result => EndGetResponseWrapper(request, result)),
+                null);
+            return timeout == null ? responseTask : responseTask.TimeoutAfter(timeout.GetValueOrDefault(), () => request.Abort());
+        }
+
+        private static HttpWebResponse EndGetResponseWrapper(HttpWebRequest request, IAsyncResult result)
+        {
+            try
+            {
+                return (HttpWebResponse)request.EndGetResponse(result);
+            }
+            catch (WebException ex)
+            {
+                if (ex.Status != WebExceptionStatus.RequestCanceled)
+                {
+                    throw;
+                }
+                throw new TimeoutException();
+            }
         }
     }
 }

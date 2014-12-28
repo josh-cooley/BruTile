@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Net;
 using BruTile.Extensions;
+using System.Threading.Tasks;
 
 namespace BruTile.Web
 {
@@ -41,6 +42,41 @@ namespace BruTile.Web
             }
         }
 
+        public static Task<byte[]> FetchImageAsync(HttpWebRequest webRequest)
+        {
+            HttpWebResponse httpWebResponse = null;
+            return webRequest.GetResponseAsync(Timeout)
+                .Then(webResponse =>
+            {
+                httpWebResponse = webResponse;
+                if (webResponse == null)
+                {
+                    throw (new WebException("An error occurred while fetching tile", null));
+                }
+
+                if (webResponse.ContentType.StartsWith("image", StringComparison.OrdinalIgnoreCase))
+                {
+                    var expectedLength = (int)webResponse.ContentLength;
+                    var responseStream = webResponse.GetResponseStream();
+                    return Utilities.ReadBytesAsync(responseStream, expectedLength)
+                        .ContinueWith(bytesTask =>
+                        {
+                            responseStream.Dispose();
+                            return bytesTask.Result;
+                        });
+                }
+
+                var message = ComposeErrorMessage(webResponse, webRequest.RequestUri.AbsoluteUri);
+                throw (new WebResponseFormatException(message, null));
+            })
+            .ContinueWith(bytesTask =>
+            {
+                if (httpWebResponse != null)
+                    httpWebResponse.Dispose();
+                return bytesTask.Result;
+            });
+        }
+
         public static byte[] FetchImage(Uri uri)
         {
             var webRequest = (HttpWebRequest)WebRequest.Create(uri);
@@ -54,6 +90,21 @@ namespace BruTile.Web
             }
 
             return FetchImage(webRequest);
+        }
+
+        public static Task<byte[]> FetchImageAsync(Uri uri)
+        {
+            var webRequest = (HttpWebRequest)WebRequest.Create(uri);
+            if (Credentials != null)
+            {
+                webRequest.Credentials = Credentials;
+            }
+            else
+            {
+                webRequest.UseDefaultCredentials = true;
+            }
+
+            return FetchImageAsync(webRequest);
         }
 
         private static string ComposeErrorMessage(WebResponse webResponse, string uri)
