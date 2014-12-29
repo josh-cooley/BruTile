@@ -5,7 +5,7 @@ using System;
 
 namespace BruTile.Web
 {
-    public class WebTileProvider : ITileProviderAsync
+    public class WebTileProvider : ITileProviderAsync, IRequest
     {
         private readonly IPersistentCache<byte[]> _persistentCache;
         private readonly IRequest _request;
@@ -32,6 +32,7 @@ namespace BruTile.Web
             return bytes;
         }
 
+
         public System.Threading.Tasks.Task<byte[]> GetTileAsync(TileInfo tileInfo)
         {
             var bytes = _persistentCache.Find(tileInfo.Index);
@@ -49,6 +50,12 @@ namespace BruTile.Web
             {
                 return Utilities.TaskFromValue(bytes);
             }
+        }
+
+        public Uri GetUri(TileInfo tileInfo)
+        {
+            return _request.GetUri(tileInfo);
+
         }
     }
 }
