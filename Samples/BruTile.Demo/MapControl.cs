@@ -14,6 +14,7 @@ namespace BruTile.Demo
 {
     class MapControl : Grid
     {
+        private AsyncFetcher<Image> _asyncFetcher;
         private Fetcher<Image> _fetcher;
         private readonly Renderer _renderer;
         private readonly MemoryCache<Tile<Image>> _tileCache = new MemoryCache<Tile<Image>>(200, 300);
@@ -50,17 +51,36 @@ namespace BruTile.Demo
 
         public void SetTileSource(ITileSource source)
         {
-            _fetcher.DataChanged -= FetcherOnDataChanged;
-            _fetcher.AbortFetch();
+            ITileSourceAsync asyncSource = source as ITileSourceAsync;
+            if (_fetcher != null)
+            {
+                _fetcher.DataChanged -= FetcherOnDataChanged;
+                _fetcher.AbortFetch();
+                _fetcher = null;
+            }
+            if (_asyncFetcher != null)
+            {
+                _asyncFetcher.DataChanged -= FetcherOnDataChanged;
+                _asyncFetcher.AbortFetch();
+                _asyncFetcher = null;
+            }
             
             _tileSource = source;
             _viewport.CenterX = source.Schema.Extent.CenterX;
             _viewport.CenterY = source.Schema.Extent.CenterY;
             _viewport.Resolution = Math.Max(source.Schema.Extent.Width / ActualWidth, source.Schema.Extent.Height / ActualHeight);
             _tileCache.Clear();
-            _fetcher = new Fetcher<Image>(_tileSource, _tileCache);
-            _fetcher.DataChanged += FetcherOnDataChanged;
-            _fetcher.ViewChanged(_viewport.Extent, _viewport.Resolution);
+            if (asyncSource == null)
+            {
+                _fetcher = new Fetcher<Image>(_tileSource, _tileCache);
+                _fetcher.DataChanged += FetcherOnDataChanged;
+            }
+            else
+            {
+                _asyncFetcher = new AsyncFetcher<Image>(asyncSource, _tileCache);
+                _asyncFetcher.DataChanged += FetcherOnDataChanged;
+            }
+            ViewChanged();
             _invalid = true;
         }
 
@@ -86,7 +106,7 @@ namespace BruTile.Demo
             var currentMousePosition = e.GetPosition(this); //Needed for both MouseMove and MouseWheel event
             _viewport.Transform(currentMousePosition.X, currentMousePosition.Y, _previousMousePosition.X, _previousMousePosition.Y);
             _previousMousePosition = currentMousePosition;
-            _fetcher.ViewChanged(_viewport.Extent, _viewport.Resolution);
+            ViewChanged();
             _invalid = true;
         }
 
@@ -95,7 +115,7 @@ namespace BruTile.Demo
             if (_viewport == null) return;
             _viewport.Width = ActualWidth;
             _viewport.Height = ActualHeight;
-            _fetcher.ViewChanged(_viewport.Extent, _viewport.Resolution);
+            ViewChanged();
             _invalid = true;
         }
 
@@ -141,7 +161,7 @@ namespace BruTile.Demo
                 _viewport.Resolution = ZoomHelper.ZoomOut(_tileSource.Schema.Resolutions.Select(r => r.Value.UnitsPerPixel).ToList(), _viewport.Resolution);
             }
 
-            _fetcher.ViewChanged(_viewport.Extent, _viewport.Resolution);
+            ViewChanged();
             e.Handled = true; //so that the scroll event is not sent to the html page.
             _invalid = true;
         }
@@ -154,11 +174,23 @@ namespace BruTile.Demo
             if (_viewport == null)
             {
                 if (!TryInitializeViewport(ref _viewport, ActualWidth, ActualHeight, _tileSource.Schema)) return;
-                _fetcher.ViewChanged(_viewport.Extent, _viewport.Resolution); // start fetching when viewport is first initialized
+                ViewChanged(); // start fetching when viewport is first initialized
             }
             
             _renderer.Render(_viewport, _tileSource, _tileCache);
             _invalid = false;
+        }
+
+        private void ViewChanged()
+        {
+            if (_fetcher != null)
+            {
+                _fetcher.ViewChanged(_viewport.Extent, _viewport.Resolution);
+            }
+            if (_asyncFetcher != null)
+            {
+                _asyncFetcher.ViewChanged(_viewport.Extent, _viewport.Resolution);
+            }
         }
 
         private static bool TryInitializeViewport(ref Viewport viewport, double actualWidth, double actualHeight, ITileSchema schema)
