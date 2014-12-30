@@ -4,6 +4,8 @@ BruTile.Desktop/obj
 BruTile.MbTiles/obj
 BruTile.Serialization/obj
 BruTile.MbTiles.Pcl/obj
+BruTileAsync/obj
+BruTileAsync.Desktop/obj
 Samples/BruTile.Demo/obj
 Samples/BruTile.Samples.Common/obj
 Samples/BruTile.Samples.MbTiles/obj
@@ -17,6 +19,8 @@ BruTile.Desktop/bin
 BruTile.MbTiles/bin
 BruTile.Serialization/bin
 BruTile.MbTiles.Pcl/bin
+BruTileAsync/bin
+BruTileAsync.Desktop/bin
 Samples/BruTile.Demo/bin
 Samples/BruTile.Samples.Common/bin
 Samples/BruTile.Samples.MbTiles/bin

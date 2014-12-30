@@ -6,7 +6,7 @@ using System.Collections.Generic;
 
 namespace BruTile.Web
 {
-    public class HttpTileSource : ITileSourceAsync, IRequest
+    public class HttpTileSource : ITileSource, IRequest
     {
         private readonly ITileSchema _tileSchema;
         private readonly WebTileProvider _provider;
@@ -32,11 +32,6 @@ namespace BruTile.Web
         public byte[] GetTile(TileInfo tileInfo)
         {
             return _provider.GetTile(tileInfo);
-        }
-
-        public System.Threading.Tasks.Task<byte[]> GetTileAsync(TileInfo tileInfo)
-        {
-            return _provider.GetTileAsync(tileInfo);
         }
 
         public Uri GetUri(TileInfo tileInfo)
