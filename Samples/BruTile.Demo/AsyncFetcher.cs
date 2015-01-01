@@ -17,11 +17,8 @@ namespace BruTile.Demo
         private Extent _extent;
         private double _resolution;
         private readonly IList<TileIndex> _tilesInProgress = new List<TileIndex>();
-        private const int MaxThreads = 4;
-        private readonly AutoResetEvent _waitHandle = new AutoResetEvent(false);
         private readonly IFetchStrategy _strategy = new FetchStrategy();
         private volatile bool _isAborted;
-        private volatile bool _isViewChanged;
         private readonly Retries _retries = new Retries();
 
         public event DataChangedEventHandler<T> DataChanged;
@@ -33,87 +30,50 @@ namespace BruTile.Demo
 
             if (memoryCache == null) throw new ArgumentException("MemoryCache can not be null");
             _memoryCache = memoryCache;
-
-            //StartFetchLoop();
         }
 
         public void ViewChanged(Extent newExtent, double newResolution)
         {
             _extent = newExtent;
             _resolution = newResolution;
-            _isViewChanged = true;
-            //_waitHandle.Set();
             StartFetch();
-        }
-
-        private void StartFetchLoop()
-        {
-            ThreadPool.QueueUserWorkItem(FetchLoop);
         }
 
         private void StartFetch()
         {
-            DoFetch();
+            Task.Run(() => Fetch());
         }
 
         public void AbortFetch()
         {
             _isAborted = true;
-            //_waitHandle.Set(); // active fetch loop so it can run out of the loop
         }
 
-        private void FetchLoop(object state)
+        private async Task Fetch()
         {
-            IEnumerable<TileInfo> tilesWanted = null;
-
-            while (!_isAborted)
-            {
-                _waitHandle.WaitOne();
-
-                if (_tileSource.Schema == null)
-                {
-                    _waitHandle.Reset();    // set in wait mode 
-                    continue;              // and go to begin of loop to wait
-                }
-
-                if (_isViewChanged || tilesWanted == null)
-                {
-                    var levelId = Utilities.GetNearestLevel(_tileSource.Schema.Resolutions, _resolution);
-                    tilesWanted = _strategy.GetTilesWanted(_tileSource.Schema, _extent, levelId);
-                    _retries.Clear();
-                    _isViewChanged = false;
-                }
-
-                var tilesMissing = GetTilesMissing(tilesWanted, _memoryCache, _retries);
-
-                FetchTiles(tilesMissing);
-
-                if (tilesMissing.Count == 0) { _waitHandle.Reset(); }
-
-                if (_tilesInProgress.Count >= MaxThreads) { _waitHandle.Reset(); }
-            }
-        }
-
-        private void DoFetch()
-        {
-            IEnumerable<TileInfo> tilesWanted = null;
-
             if (_tileSource.Schema == null)
             {
                 return;
             }
 
-            if (_isViewChanged || tilesWanted == null)
-            {
-                var levelId = Utilities.GetNearestLevel(_tileSource.Schema.Resolutions, _resolution);
-                tilesWanted = _strategy.GetTilesWanted(_tileSource.Schema, _extent, levelId);
-                _retries.Clear();
-                _isViewChanged = false;
-            }
+            var requestedResolution = _resolution;
+            var requestedExtent = _extent;
+
+            var levelId = Utilities.GetNearestLevel(_tileSource.Schema.Resolutions, requestedResolution);
+            var tilesWanted = _strategy.GetTilesWanted(_tileSource.Schema, requestedExtent, levelId);
+            _retries.Clear();
 
             var tilesMissing = GetTilesMissing(tilesWanted, _memoryCache, _retries);
-
-            DoFetchTiles(tilesMissing);
+            while (!_isAborted &&
+                tilesMissing.Count != 0 &&
+                requestedResolution == _resolution &&
+                requestedExtent == _extent)
+            {
+                // wait for all fetches to complete so that we can check if we need to try again on missing tiles
+                await FetchTiles(tilesMissing);
+                // check again to see if we are missing anything.
+                tilesMissing = GetTilesMissing(tilesWanted, _memoryCache, _retries);
+            }
         }
 
         private static IList<TileInfo> GetTilesMissing(IEnumerable<TileInfo> tilesWanted,
@@ -124,28 +84,15 @@ namespace BruTile.Demo
                 !retries.ReachedMax(info.Index)).ToList();
         }
 
-        private void FetchTiles(IEnumerable<TileInfo> tilesMissing)
+        private Task FetchTiles(IEnumerable<TileInfo> tilesMissing)
         {
-            foreach (TileInfo info in tilesMissing)
-            {
-                if (_tilesInProgress.Count >= MaxThreads) return;
-                FetchTile(info);
-            }
+            return Task.WhenAll(tilesMissing.Select(FetchTile));
         }
 
-        private void DoFetchTiles(IEnumerable<TileInfo> tilesMissing)
-        {
-            foreach (TileInfo info in tilesMissing)
-            {
-                if (_isAborted)
-                    return;
-                DoFetchTile(info);
-            }
-        }
-
-        private void FetchTile(TileInfo info)
+        private async Task FetchTile(TileInfo info)
         {
             // first some checks
+            if (_isAborted) return;
             if (_tilesInProgress.Contains(info.Index)) return;
             if (_retries.ReachedMax(info.Index)) return;
 
@@ -154,54 +101,10 @@ namespace BruTile.Demo
             _retries.PlusOne(info.Index);
 
             // now we can go for the request.
-            var task = FetchAsync(info);
-        }
-
-        private void DoFetchTile(TileInfo info)
-        {
-            // first some checks
-            if (_tilesInProgress.Contains(info.Index)) return;
-            if (_retries.ReachedMax(info.Index)) return;
-
-            // prepare for request
-            lock (_tilesInProgress) { _tilesInProgress.Add(info.Index); }
-            _retries.PlusOne(info.Index);
-
-            // now we can go for the request.
-            var task = DoFetchAsync(info);
+            await FetchAsync(info);
         }
 
         private async Task FetchAsync(TileInfo tileInfo)
-        {
-            Exception error = null;
-            Tile<T> tile = null;
-
-            try
-            {
-                if (_tileSource != null)
-                {
-                    byte[] data = await _tileSource.GetTileAsync(tileInfo);
-                    tile = new Tile<T> { Data = data, Info = tileInfo };
-                }
-            }
-            catch (Exception ex) //This may seem a bit weird. We catch the exception to pass it as an argument. This is because we are on a worker thread here, we cannot just let it fall through. 
-            {
-                error = ex;
-            }
-
-            lock (_tilesInProgress)
-            {
-                if (_tilesInProgress.Contains(tileInfo.Index))
-                    _tilesInProgress.Remove(tileInfo.Index);
-            }
-
-            _waitHandle.Set();
-
-            if (DataChanged != null && !_isAborted)
-                DataChanged(this, new DataChangedEventArgs<T>(error, false, tile));
-        }
-
-        private async Task DoFetchAsync(TileInfo tileInfo)
         {
             Exception error = null;
             Tile<T> tile = null;
