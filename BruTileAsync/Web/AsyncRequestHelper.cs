@@ -12,67 +12,91 @@ namespace BruTile.Web
 {
     public static class AsyncRequestHelper
     {
+        private static readonly HttpClientHandler _clientHandler;
+        private static readonly HttpClient _client;
+
         static AsyncRequestHelper()
         {
             Timeout = 10000;
+            _clientHandler = new HttpClientHandler();
+            _client = new HttpClient(_clientHandler);
         }
 
         public static int Timeout { get; set; }
 
-        public static ICredentials Credentials { get; set; }
-
-        public static async Task<byte[]> FetchImageAsync(Uri uri)
+        public static ICredentials Credentials
         {
-            CancellationTokenSource fetchCancelSource = new CancellationTokenSource();
-            var fetchTask = FetchImageAsyncCore(uri, fetchCancelSource.Token);
-
-            if (fetchTask.IsCompleted || Timeout == System.Threading.Timeout.Infinite)
+            get { return _clientHandler.Credentials; }
+            set
             {
-                // Either the task has already completed or timeout will never occur.
-                // No proxy necessary.
-                return await fetchTask.ConfigureAwait(false);
+                _clientHandler.Credentials = value;
+                // use default credentials when value is null
+                _clientHandler.UseDefaultCredentials = (value == null);
             }
+        }
 
-            CancellationTokenSource delayCancelSource = new CancellationTokenSource();
-            var timeoutTask = Task.Delay(Timeout, delayCancelSource.Token);
+        public static Task<byte[]> FetchImageAsync(Uri uri)
+        {
+            return FetchImageAsync(uri, CancellationToken.None);
+        }
 
-            var completedTask = await Task.WhenAny(fetchTask, timeoutTask).ConfigureAwait(false);
+        public static async Task<byte[]> FetchImageAsync(Uri uri, CancellationToken cancellationToken)
+        {
+            if (cancellationToken == null)
+                throw new ArgumentNullException("cancellationToken");
 
-            if (completedTask == fetchTask)
+            var timeout = Timeout;
+            if (timeout == System.Threading.Timeout.Infinite)
             {
-                delayCancelSource.Cancel();
-                return await fetchTask.ConfigureAwait(false);
+                return await CreateRequestAndFetchImageAsync(uri, cancellationToken).ConfigureAwait(false);
             }
             else
             {
-                fetchCancelSource.Cancel();
-                throw new TimeoutException("No response received in time.");
+                using (var timeoutCancelSource = new CancellationTokenSource(timeout))
+                {
+                    try
+                    {
+                        if (cancellationToken == CancellationToken.None)
+                        {
+                            return await CreateRequestAndFetchImageAsync(uri, timeoutCancelSource.Token).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            // must merge cancellation tokens
+                            using (var mergeTokenSource = CancellationTokenSource.CreateLinkedTokenSource(timeoutCancelSource.Token, cancellationToken))
+                            {
+                                return await CreateRequestAndFetchImageAsync(uri, mergeTokenSource.Token).ConfigureAwait(false);
+                            }
+                        }
+                    }
+                    catch (OperationCanceledException oce)
+                    {
+                        if (oce.CancellationToken == timeoutCancelSource.Token)
+                        {
+                            throw new TimeoutException("No response received in time.", oce);
+                        }
+                        throw;
+                    }
+                }
             }
         }
 
-        private static async Task<byte[]> FetchImageAsyncCore(Uri uri, CancellationToken cancellationToken)
+        private static async Task<byte[]> CreateRequestAndFetchImageAsync(Uri uri, CancellationToken cancellationToken)
         {
-            using (var handler = new HttpClientHandler())
+            using (var request = new HttpRequestMessage(HttpMethod.Get, uri))
             {
-                if (Credentials != null)
-                {
-                    handler.Credentials = Credentials;
-                }
-                else
-                {
-                    handler.UseDefaultCredentials = true;
-                }
-                using(var client = new HttpClient(handler))
-                using (var request = new HttpRequestMessage(HttpMethod.Get, uri))
-                {
-                    return await FetchImageAsync(client, request, cancellationToken);
-                }
+                return await FetchImageAsync(request, cancellationToken);
             }
         }
 
-        public static async Task<byte[]> FetchImageAsync(HttpClient client, HttpRequestMessage request, CancellationToken cancellationToken)
+        public static Task<byte[]> FetchImageAsync(HttpRequestMessage request)
         {
-            using (var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
+            return FetchImageAsync(request, CancellationToken.None);
+        }
+
+        public static async Task<byte[]> FetchImageAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            using (var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
             {
                 if (response.Content.Headers.ContentType.MediaType.StartsWith("image", StringComparison.OrdinalIgnoreCase))
                 {

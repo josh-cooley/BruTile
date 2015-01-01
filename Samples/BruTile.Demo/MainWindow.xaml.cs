@@ -71,15 +71,13 @@ namespace BruTile.Demo
                 fetcher =
                     uri =>
                     {
-                        var client = new System.Net.Http.HttpClient();
                         var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Get, uri);
                         request.Headers.UserAgent.ParseAdd(@"Mozilla/5.0 (Windows; U; Windows NT 6.0; en-US; rv:1.9.1.7) Gecko/20091221 Firefox/3.5.7");
                         request.Headers.Referrer = new Uri("http://maps.google.com/");
-                        return AsyncRequestHelper.FetchImageAsync(client, request, System.Threading.CancellationToken.None)
+                        return AsyncRequestHelper.FetchImageAsync(request)
                             .ContinueWith(bytesTask =>
                             {
                                 request.Dispose();
-                                client.Dispose();
                                 return bytesTask.Result;
                             });
                     };
