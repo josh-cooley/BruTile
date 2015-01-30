@@ -122,7 +122,7 @@ namespace BruTile.Demo
         private void FetcherOnDataChanged(object sender, DataChangedEventArgs<Image> e)
         {
             if (!Dispatcher.CheckAccess())
-                Dispatcher.Invoke(new Action(() => FetcherOnDataChanged(sender, e)));
+                Dispatcher.BeginInvoke(new Action(() => FetcherOnDataChanged(sender, e)));
             else
             {
                 if (e.Error == null && e.Tile != null)
