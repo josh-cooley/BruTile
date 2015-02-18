@@ -19,9 +19,24 @@ namespace BruTile.Wmts
         }
 
         /// <summary>
-        /// Gets or set the identifier of the corresponding TileMatrixSet
+        /// Gets an identifier for the layer and tile matrix set.
         /// </summary>
-        public string Identifier { get; internal set; }
+        public string Identifier { get { return Layer + "(" + TileMatrixSet + ")"; } }
+
+        /// <summary>
+        /// The layer identifier
+        /// </summary>
+        public string Layer { get; set; }
+
+        /// <summary>
+        /// The title of the layer
+        /// </summary>
+        public string Title { get; set; }
+
+        /// <summary>
+        /// The identifier of the tile matrix set
+        /// </summary>
+        public string TileMatrixSet { get; set; }
 
         /// <summary>
         /// Gets or sets the supported spatial reference system
@@ -36,15 +51,19 @@ namespace BruTile.Wmts
         /// <summary>
         /// Creates a copy of this schema with <see cref="Format"/> set to <paramref name="format"/>
         /// </summary>
+        /// <param name="title">The layer title</param>
+        /// <param name="layer">The layer identifier</param>
         /// <param name="abstract">A description for the layers content</param>
+        /// <param name="tileMatrixSet">The TileMatrixSet identifier</param>
         /// <param name="style">The style identifier</param>
         /// <param name="format">The format used for this style</param>
-        /// <param name="identifier">The layer identifier</param>
         /// <returns>A tile schema</returns>
-        internal WmtsTileSchema CreateSpecific(string identifier, string @abstract, string style, string format)
+        internal WmtsTileSchema CreateSpecific(string title, string layer, string @abstract, string tileMatrixSet, string style, string format)
         {
-            if (string.IsNullOrEmpty(identifier))
-                throw new ArgumentNullException("identifier");
+            if (string.IsNullOrEmpty(layer))
+                throw new ArgumentNullException("layer");
+            if (string.IsNullOrEmpty(tileMatrixSet))
+                throw new ArgumentNullException("tileMatrixSet");
             if (string.IsNullOrEmpty(format))
                 throw new ArgumentNullException("format");
             
@@ -57,11 +76,12 @@ namespace BruTile.Wmts
             var res = new WmtsTileSchema();
             res.YAxis = YAxis;
             res.Extent = new Extent(Extent.MinX, Extent.MinY, Extent.MaxX, Extent.MaxY);
-            res.Name = identifier;
+            res.Title = title;
+            res.Layer = layer;
             res.Abstract = @abstract;
+            res.TileMatrixSet = tileMatrixSet;
             res.Style = style;
             res.Format = format;
-            res.Identifier = identifier;
             res.Name = Name;
             foreach (var resolution in Resolutions)
                 res.Resolutions.Add(resolution);
@@ -75,22 +95,37 @@ namespace BruTile.Wmts
         /// </summary>
         public string Abstract { get; private set; }
 
+        /// <summary>
+        /// Gets a value indicating the name of the tile schema
+        /// </summary>
         public string Name
         {
             get;
             set;
         }
 
+        /// <summary>
+        /// Gets a value indicating the spatial reference system (srs) of the tile schema
+        /// </summary>
         public string Srs { get; set; }
 
+        /// <summary>
+        /// Gets or sets a value indicating the extent covered by this tile schema
+        /// </summary>
         public Extent Extent
         {
             get { return _extent; }
             set { _extent = value; }
         }
 
+        /// <summary>
+        /// Gets a value indicating the file format of the tiles
+        /// </summary>
         public string Format { get; set; }
-        
+
+        /// <summary>
+        /// Gets a value indicating the orientation of the y-axis
+        /// </summary>
         public YAxis YAxis { get; set; }
         
         public IDictionary<string, Resolution> Resolutions { get; set; }
